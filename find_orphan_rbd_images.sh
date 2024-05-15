@@ -49,6 +49,7 @@ __usage() {
   -l, --list-pools  : List all pools with \"${BLOCK_POOLNAME_KEYWORD}\" in the name
   -n, --namespace   : Kubernetes namespace where rook-ceph is installed
   -p, --pool        : Name of Ceph RBD Block Pool to check
+  -d, --deploy-name : Name of deployment to use as toolbox
   -q, --quiet       : Reduced output
   -h, --help        : This usage statement
   -v, --version     : Script version
@@ -84,19 +85,19 @@ __load_pv_list_by_storage_class() {
 __load_rbd_images_by_ceph_block_pool() {
   if [ -n "$1" ]; then
     # if $1 has value then specific image was requested.  Validate image name
-    if kubectl -n "${ROOK_NAMESPACE}" exec -it deploy/rook-ceph-tools -- rbd status --pool "${POOL_NAME}" "$1" > /dev/null 2> /dev/null
+    if kubectl -n "${ROOK_NAMESPACE}" exec -it "deploy/${ROOK_TOOL_DEPLOY_NAME}" -- rbd status --pool "${POOL_NAME}" "$1" > /dev/null 2> /dev/null
     then 
       RBD_IMAGES="$1"
     fi
   else
     # Load up all images / remove snapshots from the list
-    mapfile -t RBD_IMAGES < <(kubectl -n "${ROOK_NAMESPACE}" exec -it deploy/rook-ceph-tools -- rbd ls "${POOL_NAME}" | sed '/^csi-snap-.*/d')
+    mapfile -t RBD_IMAGES < <(kubectl -n "${ROOK_NAMESPACE}" exec -it "deploy/${ROOK_TOOL_DEPLOY_NAME}" -- rbd ls "${POOL_NAME}" | sed '/^csi-snap-.*/d')
   fi
 }
 
 # ---[ Confirm Ceph Namespace ]------------------------------------------------
 __test_rook_ceph_namespace() {
-  if ! kubectl -n "${ROOK_NAMESPACE}" exec -it deploy/rook-ceph-tools -- ceph -s > /dev/null 2> /dev/null
+  if ! kubectl -n "${ROOK_NAMESPACE}" exec -it "deploy/${ROOK_TOOL_DEPLOY_NAME}" -- ceph -s > /dev/null 2> /dev/null
   then 
     __error_message "Invalid Rook-Ceph Namespace specified: ${ROOK_NAMESPACE}"
     exit 2
@@ -105,7 +106,7 @@ __test_rook_ceph_namespace() {
 
 # ---[ Confirm Ceph Pool Name ]------------------------------------------------
 __test_ceph_pool_name() {
-  if ! kubectl -n "${ROOK_NAMESPACE}" exec -it deploy/rook-ceph-tools -- rbd pool --pool "${POOL_NAME}" stats > /dev/null 2> /dev/null
+  if ! kubectl -n "${ROOK_NAMESPACE}" exec -it "deploy/${ROOK_TOOL_DEPLOY_NAME}" -- rbd pool --pool "${POOL_NAME}" stats > /dev/null 2> /dev/null
   then
     __error_message "Invalid Ceph Pool Name specified: ${POOL_NAME}"
     exit 2
@@ -122,7 +123,7 @@ else
   if [ "$QUIET" -ne "$TRUE" ]; then
     echo "Pools found with keyword: $1"
   fi
-  kubectl -n "${ROOK_NAMESPACE}" exec -it deploy/rook-ceph-tools -- ceph osd pool ls | grep "$1"
+  kubectl -n "${ROOK_NAMESPACE}" exec -it "deploy/${ROOK_TOOL_DEPLOY_NAME}" -- ceph osd pool ls | grep "$1"
   exit 0
 fi
 }
@@ -165,6 +166,7 @@ __init() {
 POOL_NAME="ceph-blockpool"
 ROOK_NAMESPACE="rook-ceph"
 BLOCK_POOLNAME_KEYWORD="block"
+ROOK_TOOL_DEPLOY_NAME="rook-ceph-tools"
 
 FALSE=0
 TRUE=1
@@ -198,6 +200,9 @@ if [ "$#" -ne 0 ]; then
       -i|--image)
         PROCESS_ALL_IMAGES="$FALSE"
         PROCESS_IMAGE="$2"
+        ;;
+      -d|--deploy-name)
+        ROOK_TOOL_DEPLOY_NAME="$2"
         ;;
       -v|--version)
         echo "$VERSION"
@@ -245,17 +250,17 @@ for IMAGE in "${RBD_IMAGES[@]}"; do
     fi
   else
     # Determine if the RBD image has any watchers
-    if (kubectl -n "${ROOK_NAMESPACE}" exec -it deploy/rook-ceph-tools -- rbd status --pool "${POOL_NAME}" "${IMAGE}" | grep -q "Watchers: none")
+    if (kubectl -n "${ROOK_NAMESPACE}" exec -it "deploy/${ROOK_TOOL_DEPLOY_NAME}" -- rbd status --pool "${POOL_NAME}" "${IMAGE}" | grep -q "Watchers: none")
     then
       echo "--[ RBD Image has no Persistent Volume (PV) ]----------------------------"
       # supress "warning: fast-diff map is not enabled"
-      if ! kubectl -n "${ROOK_NAMESPACE}" exec -it deploy/rook-ceph-tools -- rbd --pool "${POOL_NAME}" du "${IMAGE}" | grep -v "fast-diff"
+      if ! kubectl -n "${ROOK_NAMESPACE}" exec -it "deploy/${ROOK_TOOL_DEPLOY_NAME}" -- rbd --pool "${POOL_NAME}" du "${IMAGE}" | grep -v "fast-diff"
       then
         echo "** Rook error check is image has PV."
       fi
       if [ "$QUIET" -ne "$TRUE" ]; then
         # show additional details is debug is enabled
-        if ! kubectl -n "${ROOK_NAMESPACE}" exec -it deploy/rook-ceph-tools -- rbd --pool "${POOL_NAME}" info "${IMAGE}" | grep 'timestamp\|size\|count'
+        if ! kubectl -n "${ROOK_NAMESPACE}" exec -it "deploy/${ROOK_TOOL_DEPLOY_NAME}" -- rbd --pool "${POOL_NAME}" info "${IMAGE}" | grep 'timestamp\|size\|count'
         then
           echo "** Rook error getting image info."
         fi
