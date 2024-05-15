@@ -16,7 +16,7 @@ VERSION="0.15"
 ###############################################################################
 
 # ---[ Init Routines ]---------------------------------------------------------
-required_utils=("kubectl" "kubectl-rook_ceph")
+required_utils=("kubectl")
 
 # Confirm required utilities are installed.
 for util in "${required_utils[@]}"; do
